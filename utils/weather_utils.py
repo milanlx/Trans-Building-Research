@@ -20,12 +20,11 @@ def convert_to_datetime_GMT(date_time_str):
     standard_time_format = "%Y/%m/%d %H:%M:%S"
     gmt = pytz.timezone('GMT')
     est = pytz.timezone('US/Eastern')
-    date = datetime.strptime(date_time_str, weather_time_format)
-    date_gmt = gmt.localize(date)
+    date_time = datetime.strptime(date_time_str, weather_time_format)
+    date_gmt = gmt.localize(date_time)
     date_est = date_gmt.astimezone(est).strftime(standard_time_format)
     # convert back to date_time format
     date_est = datetime.strptime(date_est, standard_time_format)
-    #date_est = date_gmt.astimezone(est)
     return date_est
 
 
@@ -42,7 +41,6 @@ def fill_missing_value(df, dt):
     for i in range(0, len(df.index), delta_row):
         temp_avg, rh_avg = df.loc[i]['temp_avg'], df.loc[i]['rh_avg']
         if pd.isna(temp_avg) or pd.isna(rh_avg):
-            print(df.loc[i])
             df.iat[i,1] = df.iat[i-delta_row,1]
             df.iat[i,2] = df.iat[i-delta_row,2]
     return df
@@ -81,9 +79,8 @@ def read_weather_file(file_path, year, dt):
                     date_time_str, temp_avg, rh_avg = content[0], float(content[1]), float(content[5])
                     date_time = convert_to_datetime_GMT(date_time_str)
                     offset = day_const*get_day_index(date_time) + get_day_offset(date_time, dt)
-                    if offset <= len(df.index):
+                    if offset <= length_max:
                         df.iat[offset, 1], df.iat[offset, 2] = temp_avg, rh_avg
-                        #print(date_time, df.loc[offset]['date_time'], )
     return df
 
 
@@ -91,12 +88,21 @@ def initial_df(columns, year, dt):
     num_days = 365
     if int(year)%4 == 0:
         num_days = 366
-    num_rows = int(num_days*24*60/dt) + 1          # 2020-01-01 00:00:00 - 2020-12-31 00:00:00
+    num_rows = int(num_days*24*60/dt) + 1          # 2020-01-01 00:00:00 - 2021-01-01 00:00:00
     start_date = convert_to_datetime("{}/01/01 00:00:00".format(year))
     df = pd.DataFrame(index=np.arange(num_rows), columns=columns)
     date_time_list = get_date_time_list(start_date, dt, num_rows)
     df[columns[0]] = date_time_list
     return df
+
+
+def get_date_time_list(start_date, dt, num_rows):
+    date_time_list = []
+    date_time_list.append(start_date)
+    for i in range(1, num_rows):
+        date_time_curr = date_time_list[i-1] + timedelta(minutes=dt)
+        date_time_list.append(date_time_curr)
+    return date_time_list
 
 
 # ----------------------- copied from inrix utils ----------------------- #
@@ -112,16 +118,6 @@ def get_day_offset(date_time_obj, delta_t):
     # get the offset of time-in-the-day, start from 0
     curr_minute = date_time_obj.hour*60 + date_time_obj.minute
     return curr_minute//delta_t
-
-
-def get_date_time_list(start_date, dt, num_rows):
-    #standard_time_format = "%Y/%m/%d %H:%M:%S"
-    date_time_list = []
-    date_time_list.append(start_date)
-    for i in range(1, num_rows):
-        date_time_curr = date_time_list[i-1] + timedelta(minutes=dt)
-        date_time_list.append(date_time_curr)
-    return date_time_list
 
 
 file_path = '../data/cwop_hourly-CW5882_20170101-20190901.csv'

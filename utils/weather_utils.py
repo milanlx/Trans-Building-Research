@@ -16,10 +16,8 @@ def linear_interpolate(y0, y1, num_pts):
 
 def convert_to_datetime_GMT(date_time_str):
     """read in GMT and output EST, automatically considered DST"""
-    weather_time_format = "%Y-%m-%d %H:%M:%S"
-    standard_time_format = "%Y/%m/%d %H:%M:%S"
-    gmt = pytz.timezone('GMT')
-    est = pytz.timezone('US/Eastern')
+    weather_time_format, standard_time_format = "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"
+    gmt, est = pytz.timezone('GMT'), pytz.timezone('US/Eastern')
     date_time = datetime.strptime(date_time_str, weather_time_format)
     date_gmt = gmt.localize(date_time)
     date_est = date_gmt.astimezone(est).strftime(standard_time_format)
@@ -34,16 +32,42 @@ def convert_to_datetime(date_time_str):
     return datetime.strptime(date_time_str, standard_time_format)
 
 
-
 def fill_missing_value(df, dt):
     """on hourly base, fill with most recent record"""
     delta_row = int(60/dt)
+    temp_counter, rh_counter = 0, 0
     for i in range(0, len(df.index), delta_row):
+        #print(df.loc[i]['date_time'], df.loc[i]['temp_avg'], df.loc[i]['rh_avg'])
         temp_avg, rh_avg = df.loc[i]['temp_avg'], df.loc[i]['rh_avg']
-        if pd.isna(temp_avg) or pd.isna(rh_avg):
-            df.iat[i,1] = df.iat[i-delta_row,1]
-            df.iat[i,2] = df.iat[i-delta_row,2]
+        if pd.isna(temp_avg):
+            df.iat[i, 1] = fill_with_nearest_value(df, i, delta_row, 1)
+            temp_counter += 1
+        if pd.isna(rh_avg):
+            df.iat[i, 2] = fill_with_nearest_value(df, i, delta_row, 2)
+            rh_counter += 1
+    print('temp missing: ' + str(temp_counter))
+    print('rh missing: ' + str(rh_counter))
     return df
+
+
+def fill_with_nearest_value(df, i, delta_row, idx):
+    diff = delta_row
+    max_len = len(df.index)
+    # up search
+    while i-diff > 0:
+        val = df.iloc[i-diff, idx]
+        if pd.isna(val):
+            diff += diff
+        else:
+            return val
+    # down search
+    diff = delta_row
+    while i+diff < max_len:
+        val = df.iloc[i+diff, idx]
+        if pd.isna(val):
+            diff += diff
+        else:
+            return val
 
 
 def fill_interpolate(df, dt):
@@ -59,13 +83,13 @@ def fill_interpolate(df, dt):
     return df
 
 
-
 def read_weather_file(file_path, year, dt):
     day_const = int(24*60/dt)
     col_indicator = 'Date/Time (GMT)'
     columns = ['date_time', 'temp_avg', 'rh_avg']
     df = initial_df(columns, year, dt)
     length_max = len(df.index)
+    file_name = file_path.split('/')[2].split('_')[0]
     with open(file_path, 'r') as f:
         # skip headers
         for i in range(16):
@@ -74,13 +98,19 @@ def read_weather_file(file_path, year, dt):
             content = line.strip().split(',')
             # skip rows with column names
             if content[0] != col_indicator:
-                # skip no record entry
-                if content[0] and content[1] and content[5]:
-                    date_time_str, temp_avg, rh_avg = content[0], float(content[1]), float(content[5])
-                    date_time = convert_to_datetime_GMT(date_time_str)
-                    offset = day_const*get_day_index(date_time) + get_day_offset(date_time, dt)
-                    if offset <= length_max:
-                        df.iat[offset, 1], df.iat[offset, 2] = temp_avg, rh_avg
+                if file_name == 'cwop':
+                    date_time_str = content[0]
+                    temp_avg = float(content[1]) if content[1] else np.nan
+                    rh_avg = float(content[5]) if content[5] else np.nan
+                elif file_name == 'faa':
+                    date_time_str = content[0]
+                    temp_avg = float(content[1]) if content[1] else np.nan
+                    rh_avg = float(content[7]) if content[7] else np.nan
+                date_time = convert_to_datetime_GMT(date_time_str)
+                offset = day_const*get_day_index(date_time, year) + get_day_offset(date_time, dt)
+                if 0 <= offset < length_max:
+                    #print(date_time, temp_avg, rh_avg, offset)
+                    df.iat[offset, 1], df.iat[offset, 2] = temp_avg, rh_avg
     return df
 
 
@@ -88,7 +118,8 @@ def initial_df(columns, year, dt):
     num_days = 365
     if int(year)%4 == 0:
         num_days = 366
-    num_rows = int(num_days*24*60/dt) + 1          # 2020-01-01 00:00:00 - 2021-01-01 00:00:00
+    # 2020-01-01 00:00:00 - 2021-01-01 00:00:00
+    num_rows = int(num_days*24*60/dt) + 1
     start_date = convert_to_datetime("{}/01/01 00:00:00".format(year))
     df = pd.DataFrame(index=np.arange(num_rows), columns=columns)
     date_time_list = get_date_time_list(start_date, dt, num_rows)
@@ -97,6 +128,7 @@ def initial_df(columns, year, dt):
 
 
 def get_date_time_list(start_date, dt, num_rows):
+    """create and auto-fill the date_time column"""
     date_time_list = []
     date_time_list.append(start_date)
     for i in range(1, num_rows):
@@ -105,10 +137,24 @@ def get_date_time_list(start_date, dt, num_rows):
     return date_time_list
 
 
+def construct_weather_feature(file_path, dt):
+    """
+    :param dt: time resolution in minute, default = 15
+    :return: dict: key -> year, val -> df ['date_time', 'temp_avg', 'rh_avg']
+    """
+    feat_dict = {}
+    keys = ['2017', '2018', '2019']
+    for key in keys:
+        df = read_weather_file(file_path, int(key), dt)
+        df = fill_missing_value(df, dt)
+        df = fill_interpolate(df, dt)
+        feat_dict[key] = df
+    return feat_dict
+
+
 # ----------------------- copied from inrix utils ----------------------- #
-def get_day_index(date_time_obj):
+def get_day_index(date_time_obj, year):
     # difference (in days) between the current day and first day of the year, start from 0
-    year = date_time_obj.year
     first_date = date(year, 1, 1)
     curr_date = date_time_obj.date()
     return (curr_date - first_date).days
@@ -120,9 +166,12 @@ def get_day_offset(date_time_obj, delta_t):
     return curr_minute//delta_t
 
 
-file_path = '../data/cwop_hourly-CW5882_20170101-20190901.csv'
-df = read_weather_file(file_path, 2017, 15)
-df = fill_missing_value(df, 15)
-df = fill_interpolate(df, 15)
-print(df)
+#file_path = '../data/cwop_hourly-CW5882_20170101-20190901.csv'
+#file_path = '../data/faa_hourly-KAGC_20170101-20190901.csv'
+#dt = 15
+#feat_dict = construct_weather_feature(file_path, dt)
+# save file
+#saveAsPickle(feat_dict, '../data/weather_cwop.pkl')
+
+
 

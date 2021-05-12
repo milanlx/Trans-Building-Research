@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 from utils.inrix_utils import get_meter_distance
+from utils.general_utils import convert_to_datetime_bus, get_day_index, get_day_offset
+from utils.weather_utils import initial_df
 from datetime import timedelta, datetime
 
 
@@ -61,9 +63,9 @@ def sample_bus_track(file_path, bus_route, max_num):
             route, dirt, stop_id = line[2], line[1], line[8].strip()
             trip_num = ' '.join([line[6], line[3]])
             arr_time = ':'.join([line[10], line[11], line[12]])
-            arr_date_time = convert_to_datetime(line[6], arr_time)
+            arr_date_time = convert_to_datetime_bus(line[6], arr_time)
             dep_time = ':'.join([line[13], line[14], line[15]])
-            dep_date_time = convert_to_datetime(line[6], dep_time)
+            dep_date_time = convert_to_datetime_bus(line[6], dep_time)
             key = route+'+'+dirt
             if key in bus_tracks.keys():
                 if len(bus_tracks[key].index) < max_num:
@@ -259,66 +261,69 @@ def get_next_stop_dict(per_seq, dirt):
     return next_stop_dict
 
 
-# ---------------------------- read-in files ---------------------------- #
-def process_bus_file(file_path, stop_group_dict, dt):
+# ---------------------------- bus feature processing ---------------------------- #
+def round_down_time(date_time_obj, delta_t):
+    """Round down the time to the next delta_t epoch, i.e, 10:02 - > [10:00, 10:15]"""
+    rounded = date_time_obj - (date_time_obj - datetime.min) % timedelta(minutes=delta_t) + timedelta(minutes=delta_t)
+    return rounded
+
+
+# columns: ['date_time', 'on', 'off', 'load']
+def read_bus_file(file_path, feat_dict_dir0, feat_dict_dir1, group_dict_dir0, group_dict_dir1, year, dt):
+    with open(file_path, 'r') as f:
+        for i, line in enumerate(f):
+            line = line.strip().split(',')
+            route, dirt, stop_id = line[2], line[1], line[8].strip()
+            # group index
+            if stop_id in group_dict_dir0.keys():
+                update_df(line, feat_dict_dir0, group_dict_dir0, year, dt)
+            elif stop_id in group_dict_dir1.keys():
+                update_df(line, feat_dict_dir1, group_dict_dir1, year, dt)
+            if i%100000 == 0:
+                print(i)
+    return feat_dict_dir0, feat_dict_dir1
+
+
+def update_df(line, feat_dict, group_dict, year, dt):
     """
-    :param stop_group_dict:
-    :param dt:
-    :return: dict
+    :param line: a line from the raw file, [list]
+    :param feat_dict: key -> group_id, val -> df
+    :param group_dict: key -> stop_id, val -> group_id
     """
-    n = int(365*24*60/15)
+    list_type = type([])
+    day_const = int(24*60/dt)
+    length_max = len(feat_dict[0].index)
+    stop_id = line[8].strip()
+    arr_time = ':'.join([line[10], line[11], line[12]])
+    arr_date_time = convert_to_datetime_bus(line[6], arr_time)
+    dep_time = ':'.join([line[13], line[14], line[15]])
+    dep_date_time = convert_to_datetime_bus(line[6], dep_time)
+    # on, off, load
+    features = line[16:19]
+    features = [float(i) for i in features]
+    # date_time index
+    date_time = round_down_time(dep_date_time, dt)
+    offset = day_const * get_day_index(date_time, year) + get_day_offset(date_time, dt)
+    # group idx
+    group_id = group_dict[stop_id]
+    if 0 <= offset < length_max:
+        if (dep_date_time - arr_date_time).total_seconds() / 60.0 < 30.0:
+            for i in range(3):
+                # does not account for zero
+                if features[i] > 0:
+                    if type(feat_dict[group_id].iat[offset, i + 1]) is not list_type:
+                        feat_dict[group_id].iat[offset, i + 1] = [features[i]]
+                    else:
+                        feat_dict[group_id].iat[offset, i + 1].append(features[i])
+        #print(feat_dict[group_id].loc[offset]['date_time'], feat_dict[group_id].loc[offset]['on'],
+        #      feat_dict[group_id].loc[offset]['off'], feat_dict[group_id].loc[offset]['load'])
+    return 0
+
+
+def initial_feat_dict(num_groups, columns, year, dt):
+    """return: dict, key -> group_id, value -> df ['date_time', 'on', 'off', 'load']"""
     feat_dict = {}
-    keys = []           # group_id + dir
-    value = []          # df with column
-    columns = ['date_time', 'on', 'off', 'load']        # on, off, load are list; take min, max, min, total later
-    df = pd.DataFrame(None, index=list(range(n)), columns=columns)
-    # fill the date_time column: i.e., 12:15 -> all instance recorded during 12:00 - 12:15
+    for i in range(num_groups):
+        feat_dict[i] = initial_df(columns, year, dt)
+    return feat_dict
 
-    # assign time to each bus stop check:
-    #   if arr, dep in [t] -> assign to t
-    #   if arr in [t-1], dep in [t] -> assign to t
-    #   if arr in [t-2,....], dep in [t] -> ignore
-    #   else: ignore
-
-    # need to check missing data
-    pass
-
-
-# ---------------------------- general helper ---------------------------- #
-def convert_to_datetime(date_str, time_str):
-    date_time_format = "%Y-%m-%d %H:%M:%S"
-    h, m, s = time_str.split(':')
-    if int(h) < 24:
-        date_time_str = date_str + ' ' + time_str
-        date_time_obj = datetime.strptime(date_time_str, date_time_format)
-    else:
-        time_str = (':').join([str(int(h)-24), m, s])
-        date_time_str = date_str + ' ' + time_str
-        date_time_obj = datetime.strptime(date_time_str, date_time_format)
-        date_time_obj += timedelta(days=1)
-    return date_time_obj
-
-
-
-
-
-
-
-"""
-
-stops_path = '../bus_data/stops/stops.txt'
-#data = get_bus_stops_df(stops_path)
-# save file
-#saveAsPickle(data, '../bus_data/stops/bus_stops.pkl')
-
-
-file_path = "../bus_data/csv/1903_Mar.csv"
-bus_route = labels
-max_num = 500
-bus_tracks = sample_bus_track(file_path, bus_route, max_num)
-
-# save
-output_path = "../processed_data/bus/1903_Mar_bust_track.pkl"
-saveAsPickle(bus_tracks, output_path)
-
-"""

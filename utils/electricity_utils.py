@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import xlrd
 import statistics
+from utils.general_utils import *
 
 
 building_dict = {'GHC': [1], 'Scaife': [2], 'Roberts': [3], 'Baker': [6], 'Porter': [7],
@@ -122,14 +123,14 @@ def construct_electricity_data(org_dict, building):
 
 """
 # read in raw
-file_path = '../data/cmu_2017-2019_UC_electricity.xlsx'
+file_path = "../electricity_data/cmu_2017-2019_UC_electricity.xlsx"
 type_str = 'UC'
 df = read_data(file_path, type_str)
-saveAsPickle(df, '../data/electricity_UC.pkl')
+saveAsPickle(df, '../electricity_data/raw_{}.pkl'.format(type_str))
 
 # post-processing and save
-org_dict = loadFromPickle('../data/electricity_UC.pkl')
+org_dict = loadFromPickle('../electricity_data/raw_{}.pkl'.format(type_str))
 building = 'UC'
 df = construct_electricity_data(org_dict, building)
-saveAsPickle(df, '../data/ele_{}.pkl'.format(building))
+saveAsPickle(df, '../processed_data/electricity/ele_{}.pkl'.format(building))
 """

@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import pytz
 from datetime import datetime, timedelta, date
-from weather.general_utils import *
+from utils.general_utils import *
 
 
 def linear_interpolate(y0, y1, num_pts):
@@ -37,7 +37,6 @@ def fill_missing_value(df, dt):
     delta_row = int(60/dt)
     temp_counter, rh_counter = 0, 0
     for i in range(0, len(df.index), delta_row):
-        #print(df.loc[i]['date_time'], df.loc[i]['temp_avg'], df.loc[i]['rh_avg'])
         temp_avg, rh_avg = df.loc[i]['temp_avg'], df.loc[i]['rh_avg']
         if pd.isna(temp_avg):
             df.iat[i, 1] = fill_with_nearest_value(df, i, delta_row, 1)
@@ -109,7 +108,6 @@ def read_weather_file(file_path, year, dt):
                 date_time = convert_to_datetime_GMT(date_time_str)
                 offset = day_const*get_day_index(date_time, year) + get_day_offset(date_time, dt)
                 if 0 <= offset < length_max:
-                    #print(date_time, temp_avg, rh_avg, offset)
                     df.iat[offset, 1], df.iat[offset, 2] = temp_avg, rh_avg
     return df
 
@@ -152,7 +150,7 @@ def construct_weather_feature(file_path, dt):
     return feat_dict
 
 
-# ----------------------- copied from inrix utils ----------------------- #
+# ----------------------- modified from inrix_utils ----------------------- #
 def get_day_index(date_time_obj, year):
     # difference (in days) between the current day and first day of the year, start from 0
     first_date = date(year, 1, 1)
@@ -166,12 +164,12 @@ def get_day_offset(date_time_obj, delta_t):
     return curr_minute//delta_t
 
 
-#file_path = '../data/cwop_hourly-CW5882_20170101-20190901.csv'
-#file_path = '../data/faa_hourly-KAGC_20170101-20190901.csv'
-#dt = 15
-#feat_dict = construct_weather_feature(file_path, dt)
-# save file
-#saveAsPickle(feat_dict, '../data/weather_cwop.pkl')
-
+"""
+# main
+file_path = '../weather_data/faa_hourly-KAGC_20170101-20190901.csv'
+dt = 15
+feat_dict = construct_weather_feature(file_path, dt)
+saveAsPickle(feat_dict, '../processed_data/weather/faa.pkl')
+"""
 
 

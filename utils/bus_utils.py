@@ -181,6 +181,23 @@ def update_group_dict(group_df, stop_group_dict):
     return stop_group_dict
 
 
+def update_full_group_dict(bus_stops_df, stop_group_dict, group_df, bus_track, ref_coord, thres, dirt):
+    bus_stop_seq = get_stop_seq(bus_track, dirt)
+    # filter by distance to campus
+    bus_filtered_stops = get_filtered_stops(bus_stops_df, bus_stop_seq, ref_coord, thres)
+    total_stops = get_total_stops(bus_filtered_stops)
+    # check if any stop not in group
+    stop_id_list = []
+    for stop_id in total_stops:
+        if stop_id not in stop_group_dict.keys():
+            stop_id_list.append(stop_id)
+    # update group_df
+    group_id_list, group_df = find_group_id(stop_id_list, bus_stops_df, group_df)
+    # update stop_group_dict
+    stop_group_dict = update_group_dict(group_df, stop_group_dict)
+    return group_df, stop_group_dict
+
+
 # ---------------------------- group assignment, adjacent matrix ---------------------------- #
 def get_group_dict(group_path, total_seq):
     """
@@ -259,6 +276,22 @@ def get_next_stop_dict(per_seq, dirt):
                     if next_stop not in next_stop_dict[stop_id]:
                         next_stop_dict[stop_id].append(next_stop)
     return next_stop_dict
+
+
+def initialize_group_df_dict(num_groups, dirt, ref_coord, thres, group_path, bus_stops_df, bus_track):
+    """Get bus adjacent matrix and df
+    :param:
+        - num_groups: 27 per direction
+    """
+    bus_stop_seq = get_stop_seq(bus_track, dirt)
+    bus_filtered_stops = get_filtered_stops(bus_stops_df, bus_stop_seq, ref_coord, thres)
+    total_stops = get_total_stops(bus_filtered_stops)
+    total_seq = get_total_stops_df(total_stops, bus_stops_df)
+    group_dict = get_group_dict(group_path, total_seq)
+    next_stop_dict = get_next_stop_dict(bus_filtered_stops, dirt)
+    adj = get_directed_adjacent_matrix(group_dict, next_stop_dict, num_groups)
+    group_df = get_group_df(group_dict, total_seq, adj, num_groups)
+    return group_df, group_dict
 
 
 # ---------------------------- bus feature processing ---------------------------- #

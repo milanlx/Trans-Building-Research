@@ -31,69 +31,92 @@ def increment_datetime(year, offset, delta_t, date_time_format="%Y-%m-%d %H:%M:%
     return date_time_obj + timedelta(minutes=offset*delta_t)
 
 
-def filter_road(tmc_file, road_list, epsilon, ref_coord):
+def filter_road(tmc_df, thres, ref_coord):
     """
-    - Filter and select inrix measurement given distance to the reference point
-    - NOTICE: there are duplicate lines in tmc_file
-    - Input:
-        - tmc_file: TMC_Identification, csv
-        - road_list: list of road names, str
-        - epsilon: distance threshold, in meter
-        - ref_coord: [lat, lon] of the reference point on campus
-    - Output: list [] of tmc id
+    - Filter and select inrix data point given distance to the reference point, and year of measurement
+    - return: filtered tmc_df
     """
-    tmc_list = []
-    with open(tmc_file, 'r') as f:
-        next(f)
-        for line in f:
-            content = line.strip().split(',')
-            tmc_id = str(content[0])
-            road = str(content[1])
-            tgt_lat = (float(content[7]) + float(content[9]))/2
-            tgt_lon = (float(content[8]) + float(content[10]))/2
-            dist = get_meter_distance([tgt_lat, tgt_lon], ref_coord)
-            # account for duplicate cases
-            if road in road_list:
-                if dist <= epsilon:
-                    if tmc_id not in tmc_list:
-                        tmc_list.append(tmc_id)
-    return tmc_list
+    ref_start_date = pd.to_datetime('2017-05-16')
+    ref_end_date = pd.to_datetime('2019-03-17')
+    n = len(tmc_df.index)
+    filtered_df = pd.DataFrame(columns=tmc_df.columns.tolist())
+    for i in range(n):
+        tmc_code = tmc_df.loc[i, 'tmc_code']
+        start_date_list = tmc_df.loc[i, 'active_start_date']
+        end_date_list = tmc_df.loc[i, 'active_end_date']
+        start_lat_list = tmc_df.loc[i, 'start_lat']
+        start_lon_list = tmc_df.loc[i, 'start_lon']
+        end_lat_list = tmc_df.loc[i, 'end_lat']
+        end_lon_list = tmc_df.loc[i, 'end_lon']
+        # ignore tmc_code with letters
+        if not any(c.isalpha() for c in tmc_code):
+            # check year of coverage 2017 - 2019
+            if len(start_date_list) == 4 and len(end_date_list) == 4:
+                if min(start_date_list) < ref_start_date and max(end_date_list) > ref_end_date:
+                    # check distance to campus
+                    n = len(start_lat_list)
+                    dist_list = []
+                    for j in range(n):
+                        tgt_lat = (start_lat_list[j] + end_lat_list[j])/2
+                        tgt_lon = (start_lon_list[j] + end_lon_list[j]) / 2
+                        dist = get_meter_distance([tgt_lat, tgt_lon], ref_coord)
+                        dist_list.append(dist)
+                    if min(dist_list) <= thres:
+                        filtered_df.loc[len(filtered_df.index)] = tmc_df.loc[i]
+    return filtered_df
 
 
-def create_tmc_df(tmc_file, tmc_list):
+def create_tmc_df(tmc_file):
     """
     - create dateframe with the columns:
-        - [tmc_code, road, direction, intersection, start_lat, start_lon, end_lat, end_lon, miles]
-    - NOTICE: there are duplicate lines in tmc_file
+        - [tmc_code, road, direction, intersection, start_lat, start_lon, end_lat,
+           end_lon, miles, active_start_date, active_end_date]
+    - NOTICE: there are duplicate lines in tmc_file, so that for lat/lon and start/end date list is used
     - Output: pd dataframe
     """
-    column_names = ["tmc_code", "road", "direction", "intersection",
-               "start_lat", "start_lon", "end_lat", "end_lon", "miles"]
+    column_names = ['tmc_code', 'road', 'direction', 'intersection', 'start_lat', 'start_lon',
+                    'end_lat', 'end_lon', 'miles', 'active_start_date', 'active_end_date']
     df = pd.DataFrame(columns=column_names)
-    temp_list = []
+    tmc_list = []
     with open(tmc_file, 'r') as f:
         next(f)
         for line in f:
             content = line.strip().split(',')
             tmc_code, road, direction, intersection = [str(x) for x in content[0:4]]
             start_lat, start_lon, end_lat, end_lon, miles = [float(x) for x in content[7:12]]
-            if tmc_code in tmc_list:
-                if tmc_code not in temp_list:
-                    temp_list.append(tmc_code)
-                    df.loc[len(df.index)] = [tmc_code, road, direction, intersection,
-                                            start_lat, start_lon, end_lat, end_lon, miles]
+            start_date = str(content[16]).split(' ')[0] if content[16] else '2017-01-01'
+            end_date = str(content[17]).split(' ')[0] if content[17] else start_date
+            if tmc_code not in tmc_list:
+                df.loc[len(df.index)] = [tmc_code, road, direction, intersection, [start_lat], [start_lon], [end_lat],
+                                         [end_lon], [miles], [pd.to_datetime(start_date)], [pd.to_datetime(end_date)]]
+                tmc_list.append(tmc_code)
+            else:
+                idx = df[df['tmc_code']==tmc_code].index.tolist()[0]
+                df.loc[idx].at['start_lat'].append(start_lat)
+                df.loc[idx].at['start_lon'].append(start_lon)
+                df.loc[idx].at['end_lat'].append(end_lat)
+                df.loc[idx].at['end_lon'].append(end_lon)
+                df.loc[idx].at['miles'].append(miles)
+                df.loc[idx].at['active_start_date'].append(pd.to_datetime(start_date))
+                df.loc[idx].at['active_end_date'].append(pd.to_datetime(end_date))
     return df
 
 
 def append_neighbors(tmc_df):
     """For each tmc_code, find the directed neighbors (index in the df)
-    :return: modified tmc_df with "neighbor" column
+    :return: modified tmc_df with "neighbor" column added
     """
     n = len(tmc_df.index)
     neighbors = []
     for i in range(n):
-        start_lat, start_lon = tmc_df['start_lat'][i], tmc_df['start_lon'][i]
-        neighbor = tmc_df.index[(tmc_df['end_lat'] == start_lat) & (tmc_df['end_lon'] == start_lon)].tolist()
+        neighbor = []
+        end_lat, end_lon = tmc_df['end_lat'][i], tmc_df['end_lon'][i]
+        for j in range(n):
+            start_lat, start_lon = tmc_df['start_lat'][j], tmc_df['start_lon'][j]
+            # without self loop
+            if i != j:
+                if any(item in end_lat for item in start_lat) and any(item in end_lon for item in start_lon):
+                    neighbor.append(j)
         neighbors.append(neighbor)
     tmc_df['neighbors'] = neighbors
     return tmc_df

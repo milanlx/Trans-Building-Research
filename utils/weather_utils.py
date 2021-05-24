@@ -88,7 +88,7 @@ def read_weather_file(file_path, year, dt):
     columns = ['date_time', 'temp_avg', 'rh_avg']
     df = initial_df(columns, year, dt)
     length_max = len(df.index)
-    file_name = file_path.split('/')[2].split('_')[0]
+    file_name = file_path.split('/')[1].split('_')[0]
     with open(file_path, 'r') as f:
         # skip headers
         for i in range(16):
@@ -163,13 +163,5 @@ def get_day_offset(date_time_obj, delta_t):
     curr_minute = date_time_obj.hour*60 + date_time_obj.minute
     return curr_minute//delta_t
 
-
-"""
-# main
-file_path = '../weather_data/faa_hourly-KAGC_20170101-20190901.csv'
-dt = 15
-feat_dict = construct_weather_feature(file_path, dt)
-saveAsPickle(feat_dict, '../processed_data/weather/faa.pkl')
-"""
 
 

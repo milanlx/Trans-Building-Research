@@ -112,13 +112,17 @@ def get_median_increment(df):
 
 
 def construct_electricity_data(org_dict, building):
-    df = org_dict['2019'].iloc[:, [0, building_dict[building][0]]]
-    med = get_median_increment(df)
-    #missing_dict = check_missing_data_errors(df)
-    #reading_dict = check_reading_error(df)
-    df = fill_with_median(df, med)
-    df = df.drop(df.columns[1], 1)
-    return df
+    years = ['2017', '2018', '2019']
+    feat_dict = {}
+    for year in years:
+        df = org_dict[year].iloc[:, [0, building_dict[building][0]]]
+        med = get_median_increment(df)
+        #missing_dict = check_missing_data_errors(df)
+        #reading_dict = check_reading_error(df)
+        df = fill_with_median(df, med)
+        df = df.drop(df.columns[1], 1)
+        feat_dict[year] = df
+    return feat_dict
 
 
 """

@@ -1,0 +1,11 @@
+# inrix related
+lat, lon of reference point on campus: ref_coord = [40.443431, -79.941643]
+
+
+# bus
+min/max of on/off/load:
+
+        on      off     load
+min
+max
+
